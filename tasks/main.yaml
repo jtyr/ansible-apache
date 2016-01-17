@@ -1,0 +1,93 @@
+---
+
+- name: Test distribution
+  assert:
+    that: >
+      ansible_os_family == "RedHat"
+
+- name: Install Apache package
+  package:
+    name: "{{ apache_pkg }}"
+    state: present
+  notify:
+    - Restart Apache service
+  tags:
+    - apache_pkg
+
+- name: Install additional Apache package
+  package:
+    name: "{{ item }}"
+    state: present
+  with_items: apache_additional_pkgs
+  notify:
+    - Restart Apache service
+  tags:
+    - apache_pkg
+
+- name: Create httpd.conf file
+  template:
+    src: httpd.conf.j2
+    dest: "{{ apache_httpd_path }}"
+    owner: "{{ apache_user }}"
+    group: "{{ apache_group }}"
+  register: apache_httpd_result
+  notify:
+    - Restart Apache service
+  tags:
+    - apache_config
+    - apache_config_httpd
+
+- name: Create vhost files
+  template:
+    src: vhost.conf.j2
+    dest: "{{ apache_vhost_path }}/{{ item.key }}.conf"
+    owner: "{{ apache_user }}"
+    group: "{{ apache_group }}"
+  with_dict: apache_vhost_config
+  register: apache_vhost_result
+  notify:
+    - Restart Apache service
+  tags:
+    - apache_config
+    - apache_config_vhost
+
+- name: Get list of vhosts
+  shell: ls {{ apache_vhost_path }}/*.conf | sed -r 's,{{ apache_vhost_path }}/(.+)\.conf,\1,g'
+  register: apache_vhost_present
+  when: apache_vhost_managed
+  changed_when: False
+  tags:
+    - apache_config
+    - apache_config_vhost
+
+- name: Erase unmanaged vhosts
+  file:
+    path: "{{ apache_vhost_path }}/{{ item }}.conf"
+    state: "{{ 'absent' if item not in apache_vhost_config else 'file' }}"
+  with_items: apache_vhost_present.stdout_lines
+  when: apache_vhost_managed
+  tags:
+    - apache_config
+    - apache_config_vhost
+
+- debug:
+    var: apache_vhost_result.changed
+
+- name: Make sure the Apache service is enabled
+  service:
+    name: "{{ apache_service }}"
+    enabled: yes
+  tags:
+    - apache_config
+
+- name: Make sure the Apache service is running
+  service:
+    name: "{{ apache_service }}"
+    state: started
+  register: apache_service_started
+  when: >
+      not apache_httpd_result.changed and
+      not apache_vhost_result.changed
+  tags:
+    - apache_config
+    - apache_pkg

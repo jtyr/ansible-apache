@@ -1,0 +1,7 @@
+---
+
+- name: Restart Apache service
+  service:
+    name: "{{ apache_service }}"
+    state: restarted
+  when: apache_service_start is not defined or not apache_service_started.changed
